@@ -3,6 +3,9 @@ import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:kakao_flutter_sdk_user/kakao_flutter_sdk_user.dart';
 import 'firebase_options.dart';
+import 'package:chatapp/screen/chatting_screen.dart';
+import 'package:chatapp/screens/chatting_screen.dart';
+
 
 void main() async {
   KakaoSdk.init(

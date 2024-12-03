@@ -5,6 +5,7 @@ import 'package:kakao_flutter_sdk_user/kakao_flutter_sdk_user.dart' as kakao_sdk
 import 'package:chatapp/screen/signup_screen.dart'; // 회원가입 화면 import
 import 'package:chatapp/screen/home_screen.dart';
 import 'package:firebase_auth/firebase_auth.dart' as firebase_auth;
+import 'package:chatapp/screens/chatting_screen.dart';
 
 class LoginSignupScreen extends StatefulWidget {
   const LoginSignupScreen({Key? key}) : super(key: key);
@@ -71,29 +72,6 @@ class _LoginSignupScreenState extends State<LoginSignupScreen> {
               padding: const EdgeInsets.only(top: 90, left: 20),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  RichText(
-                    text: const TextSpan(
-                      text: 'Welcome',
-                      style: TextStyle(
-                        letterSpacing: 1.0,
-                        fontSize: 25,
-                        color: Colors.black87,
-                      ),
-                      children: [
-                        TextSpan(
-                          text: ' to Sangmyung Community',
-                          style: TextStyle(
-                            letterSpacing: 1.0,
-                            fontSize: 25,
-                            color: Colors.black87,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
               ),
               height: 300,
               decoration: const BoxDecoration(
@@ -167,7 +145,7 @@ class _LoginSignupScreenState extends State<LoginSignupScreen> {
                   GestureDetector(
                     onTap: _loginWithKakao,
                     child: Image.asset(
-                      'asset/img/kakao_logo.png', // 카카오톡 아이콘 이미지
+                      'asset/img/kakaoimage.png', // 카카오톡 아이콘 이미지
                       width: 200,
                       height: 50,
                     ),
