@@ -42,7 +42,6 @@ class _HomeScreenState extends State<HomeScreen> {
     super.initState();
     _checkLocationPermission(); // 위치 권한 확인 및 요청
     _getGoogleUserInfo(); // 구글 사용자 정보 가져오기
-    _getNearbyUsers();
     _getUserInfo();
   }
 
@@ -86,51 +85,18 @@ class _HomeScreenState extends State<HomeScreen> {
   void _updateUserInfoInFirestore(String userName, String userProfilePicUrl) async {
     firebase_auth.User? user = _firebaseAuth.currentUser;
     if (user != null) {
+      Position position = await Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.high);
+      GeoPoint location = GeoPoint(position.latitude, position.longitude);
+
       await FirebaseFirestore.instance.collection('users').doc(user.uid).set({
         'name': userName,
         'profilePicUrl': userProfilePicUrl,
         'lastLogin': Timestamp.now(),
+        'location': location, // 위치 정보 추가
       }, SetOptions(merge: true)); // 기존 정보와 병합
     }
   }
 
-  // Firestore에서 근처 사용자 가져오기
-  Future<void> _getNearbyUsers() async {
-    firebase_auth.User? user = _firebaseAuth.currentUser;
-    if (user != null) {
-      DocumentSnapshot userDoc = await FirebaseFirestore.instance
-          .collection('users')
-          .doc(user.uid)
-          .get();
-
-      if (userDoc.exists) {
-        GeoPoint currentUserLocation = userDoc['location'];
-        double userLat = currentUserLocation.latitude;
-        double userLng = currentUserLocation.longitude;
-
-        var querySnapshot = await FirebaseFirestore.instance
-            .collection('users')
-            .where('isOnline', isEqualTo: true)
-            .get();
-
-        List<String> nearbyUsers = [];
-        for (var doc in querySnapshot.docs) {
-          var userLocation = doc['location'];
-          if (userLocation is GeoPoint) {
-            double distance = _calculateDistance(
-                userLat, userLng, userLocation.latitude,
-                userLocation.longitude);
-            if (distance <= 10000 && doc.id != user.uid) {
-              nearbyUsers.add(doc['name']);
-            }
-          }
-        }
-        setState(() {
-          _nearbyUsers = nearbyUsers;
-        });
-      }
-    }
-  }
 
   // 위치 권한 확인 및 요청
   Future<void> _checkLocationPermission() async {
