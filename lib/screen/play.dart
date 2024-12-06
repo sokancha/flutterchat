@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:chatapp/component/time_page.dart'; // TimePage를 가져옴.
-import 'package:chatapp/screens/chatting_screen.dart';
+import 'package:chatapp/screen/chatting_screen.dart';
 
 class PlayScreen extends StatelessWidget {
   const PlayScreen({Key? key}) : super(key: key);
@@ -39,10 +39,10 @@ class PlayScreen extends StatelessWidget {
           );
         },
         style: ElevatedButton.styleFrom(
-          padding: const EdgeInsets.symmetric(vertical: 12.0), // 버튼 크기 조정
-          textStyle: const TextStyle(fontSize: 16), // 텍스트 크기 조정
-          shape: const RoundedRectangleBorder(
-            borderRadius: BorderRadius.zero, // 모서리를 0으로 설정해 직사각형으로 변경
+          padding: const EdgeInsets.symmetric(vertical: 10.0), // 버튼 크기 조정
+          textStyle: const TextStyle(fontSize: 20,fontWeight: FontWeight.bold), // 텍스트 크기 조정
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(30), // 모서리를 0으로 설정해 직사각형으로 변경
           ),
         ),
         child: Text(title), // 버튼 텍스트
@@ -56,7 +56,10 @@ final List<Map<String, dynamic>> playOptions = [
   {'title': '볼링', 'pageNumber': 1},
   {'title': '당구', 'pageNumber': 2},
   {'title': 'PC방', 'pageNumber': 3},
-  {'title': '야구', 'pageNumber': 4},
+  {'title': '스크린 야구', 'pageNumber': 4},
   {'title': '농구', 'pageNumber': 5},
   {'title': '보드게임', 'pageNumber': 6},
+  {'title': '풋살', 'pageNumber': 7},
+  {'title': '헬스장', 'pageNumber': 8},
+  {'title': '열람실에서 공부', 'pageNumber': 9},
 ];
