@@ -304,7 +304,7 @@ class _HomeScreenState extends State<HomeScreen> {
             height: 250, // 지도 높이를 250으로 지정 (크기를 줄이기 위해 설정)
             child: GoogleMap(
               initialCameraPosition: CameraPosition(
-                target: _currentPosition ?? LatLng(37.7749, -122.4194),
+                target: _currentPosition ?? LatLng(36.83423, 127.1793),
                 zoom: 14,
               ),
               myLocationEnabled: true,
