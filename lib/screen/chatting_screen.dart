@@ -3,8 +3,16 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:chatapp/screen/login_signup_screen.dart';
 
+
+
 class ChattingScreen extends StatefulWidget {
-  const ChattingScreen({Key? key}) : super(key: key);
+  final String times;
+  final String title;
+  const ChattingScreen({Key? key,
+    required this.times,
+    required this.title,
+  }) : super(key: key);
+
 
   @override
   _ChattingScreenState createState() => _ChattingScreenState();
@@ -15,6 +23,16 @@ class _ChattingScreenState extends State<ChattingScreen> {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final FirebaseAuth _auth = FirebaseAuth.instance;
   String _userName = '';
+
+  final List<String> _emojiList = [
+    '😊', '😂', '😍', '🥺', '😎', '😢', '🤔', '😡', '🥳', '😜',
+    '🤩', '😏', '😇', '🙃', '🥰', '😱', '🤭', '😴', '😷', '😈',
+    '🥶', '💀', '👀', '👋', '👏', '✌️', '💪', '🙏', '❤️', '💔',
+    '💯', '🔥', '🌸', '🌼', '🎉', '🌈', '🌙', '⭐', '⚡', '🌻', '🌞',
+  ];
+
+  // 이모티콘 패널의 상태
+  bool _isEmojiPanelVisible = false;
 
   @override
   void initState() {
@@ -36,99 +54,46 @@ class _ChattingScreenState extends State<ChattingScreen> {
   }
 
   // 메시지 전송 메서드
-  Future<void> _sendMessage({String? predefinedMessage}) async {
+  Future<void> _sendMessage() async {
     final user = _auth.currentUser;
-    if (user != null && (predefinedMessage != null || _messageController.text.trim().isNotEmpty)) {
+    if (user != null && _messageController.text.trim().isNotEmpty) {
       final userDoc = await _firestore.collection('users').doc(user.uid).get();
       if (userDoc.exists) {
         final userName = userDoc['name'];
 
         await _firestore.collection('chats').add({
-          'text': predefinedMessage ?? _messageController.text.trim(),
+          'text': _messageController.text.trim(),
           'createdAt': Timestamp.now(),
           'username': userName,
           'userId': user.uid,
-          'type': 'text',
+          'isActivityMessage': false, // 기본 메시지는 일반 메시지로 저장
         });
         _messageController.clear();
       }
     }
   }
-
-  Future<void> _sendButtonMessage(String buttonText) async {
+  Future<void> _sendLikeOrDislikeMessage(
+      String action, String originalMessage, String originalUserName) async {
     final user = _auth.currentUser;
     if (user != null) {
-      final userDoc = await _firestore.collection('users').doc(user.uid).get();
-      if (userDoc.exists) {
-        final userName = userDoc['name'];
-
-        await _firestore.collection('chats').add({
-          'text': buttonText,
-          'createdAt': Timestamp.now(),
-          'username': userName,
-          'userId': user.uid,
-          'type': 'button', // 메시지 타입을 버튼으로 설정
-        });
-      }
+      String color = action == '좋아요' ? '#008000' : '#FF0000'; // 좋아요는 green, 싫어요는 red
+      await _firestore.collection('chats').add({
+        'text': '$originalUserName가 보낸 "$originalMessage" 메시지에 대해 $_userName는 $action!',
+        'createdAt': Timestamp.now(),
+        'username': _userName,
+        'userId': user.uid,
+        'color': color,
+        'isActivityMessage': false, // 좋아요/싫어요 메시지임을 표시
+      });
     }
   }
-
-  Future<void> _sendLikeMessage() async {
-    final user = _auth.currentUser;
-    if (user != null) {
-      final userDoc = await _firestore.collection('users').doc(user.uid).get();
-      if (userDoc.exists) {
-        final userName = userDoc['name'];
-
-        await _firestore.collection('chats').add({
-          'text': '좋아요!',
-          'createdAt': Timestamp.now(),
-          'username': userName,
-          'userId': user.uid,
-          'type': 'like', // 메시지 타입을 좋아요로 설정
-        });
-      }
-    }
+  void _addEmoji(String emoji) {
+    setState(() {
+      _messageController.text += emoji; // 이모티콘 추가
+    });
   }
 
-  void _showCustomDialog(BuildContext context) {
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('옵션 선택'),
-        content: SizedBox(
-          height: 100,
-          child: Column(
-            children: [
-              ElevatedButton(
-                onPressed: () {
-                  // 첫 번째 버튼 클릭 시 버튼 메시지 전송
-                  Navigator.of(ctx).pop();
-                  _sendButtonMessage('확인 버튼');
-                },
-                child: const Text('확인 버튼 보내기'),
-              ),
-              const SizedBox(height: 10),
-              ElevatedButton(
-                onPressed: () {
-                  Navigator.of(ctx).pop();
-                },
-                child: const Text('옵션 2'),
-              ),
-            ],
-          ),
-        ),
-        actions: <Widget>[
-          TextButton(
-            onPressed: () {
-              Navigator.of(ctx).pop();
-            },
-            child: const Text('닫기'),
-          ),
-        ],
-      ),
-    );
-  }
+
 
   @override
   Widget build(BuildContext context) {
@@ -153,15 +118,6 @@ class _ChattingScreenState extends State<ChattingScreen> {
             fontWeight: FontWeight.bold,
           ),
         ),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.add),
-            onPressed: () {
-              _showCustomDialog(context); // 새 버튼을 눌렀을 때 팝업 창 호출
-            },
-            tooltip: '옵션 추가',
-          ),
-        ],
       ),
       body: Column(
         children: [
@@ -189,11 +145,14 @@ class _ChattingScreenState extends State<ChattingScreen> {
                     final chatData = chatDocs[index].data() as Map<String, dynamic>;
                     final username = chatData['username'] ?? 'Unknown User';
                     final isCurrentUser = chatData['userId'] == _auth.currentUser?.uid;
+                    final isActivityMessage = chatData['isActivityMessage'] ?? false;
+                    final messageColor = chatData['color'] ?? '#000000';
 
                     return Padding(
                       padding: const EdgeInsets.symmetric(vertical: 8.0, horizontal: 10.0),
                       child: Column(
-                        crossAxisAlignment: isCurrentUser ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+                        crossAxisAlignment:
+                        isCurrentUser ? CrossAxisAlignment.end : CrossAxisAlignment.start,
                         children: [
                           // 이름 표시
                           Text(
@@ -204,45 +163,51 @@ class _ChattingScreenState extends State<ChattingScreen> {
                             ),
                           ),
                           const SizedBox(height: 4),
-                          // 메시지 박스 또는 버튼
-                          if (chatData['type'] == 'button')
-                            ElevatedButton(
-                              onPressed: () {
-                                // 버튼 클릭 시 "좋아요!" 메시지 전송
-                                _sendLikeMessage();
-                              },
-                              child: Text(chatData['text']),
-                            )
-                          else if (chatData['type'] == 'like')
-                            Container(
-                              padding: const EdgeInsets.symmetric(vertical: 5.0, horizontal: 10.0),
-                              decoration: BoxDecoration(
-                                color: Colors.red[100],
-                                borderRadius: BorderRadius.circular(10),
-                              ),
-                              child: Text(
-                                chatData['text'],
-                                style: const TextStyle(
-                                  color: Colors.red,
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                            )
-                          else
-                            Container(
-                              padding: const EdgeInsets.symmetric(vertical: 10.0, horizontal: 15.0),
-                              decoration: BoxDecoration(
-                                color: isCurrentUser ? Colors.blue : Colors.grey[300],
-                                borderRadius: BorderRadius.circular(15),
-                              ),
-                              child: Text(
-                                chatData['text'],
-                                style: TextStyle(
-                                  color: isCurrentUser ? Colors.white : Colors.black,
-                                ),
-                              ),
+                          // 메시지 박스
+                          Container(
+                            padding: const EdgeInsets.symmetric(vertical: 10.0, horizontal: 15.0),
+                            decoration: BoxDecoration(
+                              color: isActivityMessage ? Color(0xFF90EE90) : (isCurrentUser ? Colors.blue : Colors.grey[300]),
+                              borderRadius: BorderRadius.circular(15),
                             ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                // 메시지 내용
+                                Text(
+                                  chatData['text'],
+                                  style: TextStyle(
+                                    color: Color(int.parse('0xFF' + messageColor.substring(1))),
+                                    fontSize: isActivityMessage ? 20.0 : 14.0,
+                                    fontWeight: isActivityMessage ? FontWeight.bold : FontWeight.normal,
+                                  ),
+                                ),
+                                // 좋아요/싫어요 버튼
+                                if (isActivityMessage) ...[
+                                  const SizedBox(height: 10),
+                                  Row(
+                                    mainAxisAlignment: MainAxisAlignment.end,
+                                    children: [
+                                      IconButton(
+                                        icon: const Icon(Icons.thumb_up, color: Colors.green),
+                                        onPressed: () async {
+                                          await _sendLikeOrDislikeMessage(
+                                              '좋아요', chatData['text'], username);
+                                        },
+                                      ),
+                                      IconButton(
+                                        icon: const Icon(Icons.thumb_down, color: Colors.red),
+                                        onPressed: () async {
+                                          await _sendLikeOrDislikeMessage(
+                                              '싫어요', chatData['text'], username); // 싫어요 클릭 시 메시지 전송
+                                        },
+                                      ),
+                                    ],
+                                  ),
+                                ],
+                              ],
+                            ),
+                          ),
                         ],
                       ),
                     );
@@ -256,6 +221,14 @@ class _ChattingScreenState extends State<ChattingScreen> {
             padding: const EdgeInsets.all(8.0),
             child: Row(
               children: [
+                IconButton(
+                  icon: const Icon(Icons.emoji_emotions),
+                  onPressed: () {
+                    setState(() {
+                      _isEmojiPanelVisible = !_isEmojiPanelVisible; // 이모티콘 패널 토글
+                    });
+                  },
+                ),
                 Expanded(
                   child: TextField(
                     controller: _messageController,
@@ -271,6 +244,26 @@ class _ChattingScreenState extends State<ChattingScreen> {
               ],
             ),
           ),
+          // 이모티콘 패널 (보여주기/숨기기)
+          if (_isEmojiPanelVisible)
+            Container(
+              height: 100, // 높이를 적당히 조절하여 UI 개선
+              color: Colors.grey[200],
+              child: GridView.builder(
+                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                  crossAxisCount: 7, // 한 줄에 7개로 늘려서 더 촘촘하게 배치
+                  crossAxisSpacing: 4.0, // 수평 간격 줄이기
+                  mainAxisSpacing: 4.0, // 수직 간격 줄이기
+                ),
+                itemCount: _emojiList.length,
+                itemBuilder: (context, index) {
+                  return GestureDetector(
+                    onTap: () => _addEmoji(_emojiList[index]),
+                    child: Center(child: Text(_emojiList[index], style: TextStyle(fontSize: 30))),
+                  );
+                },
+              ),
+            ),
         ],
       ),
     );
