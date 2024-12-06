@@ -1,12 +1,23 @@
 import 'package:flutter/material.dart';
-import 'package:firebase_auth/firebase_auth.dart';
+
+import 'package:firebase_auth/firebase_auth.dart' as firebase_auth;
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:kakao_flutter_sdk/kakao_flutter_sdk.dart';
+
 import 'package:chatapp/screen/play.dart'; // play.dart의 PlayScreen 가져오기
 import 'package:chatapp/screen/login_signup_screen.dart';
-import 'package:google_maps_flutter/google_maps_flutter.dart';
-import 'dart:math';
+import 'package:chatapp/screen/chatting_screen.dart';
 import 'package:chatapp/config/palette.dart';
-import 'package:chatapp/screens/chatting_screen.dart';
+import 'package:chatapp/screen/food.dart';
+
+import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'package:modal_side_sheet/modal_side_sheet.dart';
+import 'package:geolocator/geolocator.dart';
+import 'package:permission_handler/permission_handler.dart';
+
+import 'dart:math';
+import 'package:google_sign_in/google_sign_in.dart';
+
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({Key? key}) : super(key: key);
@@ -18,20 +29,125 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   int _selectedIndex = 0; // 현재 선택된 네비게이션 탭 인덱스
   String _userName = ''; // Firestore에서 가져온 사용자 이름
-  late LatLng _currentPosition = LatLng(37.7749, -122.4194); // 초기 위치 (샌프란시스코)
+  String _userProfilePicUrl = ''; // 구글에서 가져온 사용자 프로필 사진 URL
   late GoogleMapController _mapController; // 구글 맵 컨트롤러
   List<String> _nearbyUsers = []; // 근처 사용자 목록
+  LatLng? _currentPosition; // 현재 위치 저장 (초기화 전에는 null)
+
+  final GoogleSignIn _googleSignIn = GoogleSignIn(); // 구글 로그인 객체
+  final firebase_auth.FirebaseAuth _firebaseAuth = firebase_auth.FirebaseAuth.instance; // Firebase Auth 객체
 
   @override
   void initState() {
     super.initState();
+    _checkLocationPermission(); // 위치 권한 확인 및 요청
+    _getGoogleUserInfo(); // 구글 사용자 정보 가져오기
+    _getNearbyUsers();
     _getUserInfo();
-    _getNearbyUsers(); // 근처 사용자 목록 가져오기
+  }
+
+  // 구글 사용자 정보 가져오기
+  Future<void> _getGoogleUserInfo() async {
+    try {
+      GoogleSignInAccount? googleUser = await _googleSignIn.signIn();
+
+      if (googleUser != null) {
+        GoogleSignInAuthentication googleAuth = await googleUser.authentication;
+        firebase_auth.AuthCredential credential = firebase_auth.GoogleAuthProvider.credential(
+          accessToken: googleAuth.accessToken,
+          idToken: googleAuth.idToken,
+        );
+
+        // Firebase 인증
+        firebase_auth.UserCredential userCredential = await _firebaseAuth.signInWithCredential(credential);
+        firebase_auth.User? user = userCredential.user;
+
+        if (user != null) {
+          // 프로필 정보가 없을 경우 기본값 처리
+          String userName = user.displayName ?? '사용자 이름 없음';
+          String userProfilePicUrl = user.photoURL ?? 'https://example.com/default_profile_pic.png'; // 기본 프로필 사진 URL
+
+          // Firestore에 구글 사용자 정보 업데이트
+          _updateUserInfoInFirestore(userName, userProfilePicUrl);
+
+          // 상태 업데이트
+          setState(() {
+            _userName = userName;
+            _userProfilePicUrl = userProfilePicUrl;
+          });
+        }
+      }
+    } catch (error) {
+      print("구글 사용자 정보 가져오기 실패: $error");
+    }
+  }
+
+  // Firestore에 사용자 정보 업데이트
+  void _updateUserInfoInFirestore(String userName, String userProfilePicUrl) async {
+    firebase_auth.User? user = _firebaseAuth.currentUser;
+    if (user != null) {
+      await FirebaseFirestore.instance.collection('users').doc(user.uid).set({
+        'name': userName,
+        'profilePicUrl': userProfilePicUrl,
+        'lastLogin': Timestamp.now(),
+      }, SetOptions(merge: true)); // 기존 정보와 병합
+    }
+  }
+
+  // Firestore에서 근처 사용자 가져오기
+  Future<void> _getNearbyUsers() async {
+    firebase_auth.User? user = _firebaseAuth.currentUser;
+    if (user != null) {
+      DocumentSnapshot userDoc = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(user.uid)
+          .get();
+
+      if (userDoc.exists) {
+        GeoPoint currentUserLocation = userDoc['location'];
+        double userLat = currentUserLocation.latitude;
+        double userLng = currentUserLocation.longitude;
+
+        var querySnapshot = await FirebaseFirestore.instance
+            .collection('users')
+            .where('isOnline', isEqualTo: true)
+            .get();
+
+        List<String> nearbyUsers = [];
+        for (var doc in querySnapshot.docs) {
+          var userLocation = doc['location'];
+          if (userLocation is GeoPoint) {
+            double distance = _calculateDistance(
+                userLat, userLng, userLocation.latitude,
+                userLocation.longitude);
+            if (distance <= 10000 && doc.id != user.uid) {
+              nearbyUsers.add(doc['name']);
+            }
+          }
+        }
+        setState(() {
+          _nearbyUsers = nearbyUsers;
+        });
+      }
+    }
+  }
+
+  // 위치 권한 확인 및 요청
+  Future<void> _checkLocationPermission() async {
+    PermissionStatus status = await Permission.location.request();
+    if (status.isGranted) {
+      _getCurrentLocationAndFetchNearbyUsers();
+    } else {
+      // 권한이 거부된 경우 사용자에게 알림
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('위치 권한이 필요합니다. 설정에서 위치 권한을 허용해주세요.')),
+      );
+    }
   }
 
   // Firestore에서 사용자 정보 가져오기
   void _getUserInfo() async {
-    User? user = FirebaseAuth.instance.currentUser; // 현재 사용자 가져오기
+    firebase_auth.User? user = _firebaseAuth.currentUser;
     if (user != null) {
       // Firestore에서 사용자 데이터 읽기
       DocumentSnapshot userDoc = await FirebaseFirestore.instance
@@ -42,58 +158,72 @@ class _HomeScreenState extends State<HomeScreen> {
       if (userDoc.exists) {
         setState(() {
           _userName = userDoc['name'] ?? '사용자'; // name 필드 읽기, 없으면 기본값 '사용자'
+          _userProfilePicUrl = userDoc['profilePicUrl'] ?? '';
+
         });
       }
     }
   }
 
+  // 현재 위치를 가져와 Firestore에서 근처 사용자 가져오기
+  Future<void> _getCurrentLocationAndFetchNearbyUsers() async {
+    Position position = await Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.high);
+    setState(() {
+      _currentPosition = LatLng(position.latitude, position.longitude);
+    });
 
-  // Firestore에서 근처 사용자 가져오기
-  Future<void> _getNearbyUsers() async {
-    User? user = FirebaseAuth.instance.currentUser; // 현재 사용자 가져오기
+    double userLat = position.latitude;
+    double userLng = position.longitude;
+
+    firebase_auth.User? user = _firebaseAuth.currentUser;
     if (user != null) {
-      DocumentSnapshot userDoc = await FirebaseFirestore.instance
+      // 사용자 위치 Firestore에 저장
+      await FirebaseFirestore.instance.collection('users').doc(user.uid).collection('locations').add(
+        {
+          'location': GeoPoint(userLat, userLng),
+          'timestamp': FieldValue.serverTimestamp(),
+        },
+      );
+
+      // 근처 사용자 쿼리 (예: 10km 이내)
+      var querySnapshot = await FirebaseFirestore.instance
           .collection('users')
-          .doc(user.uid)
           .get();
 
-      if (userDoc.exists) {
-        GeoPoint currentUserLocation = userDoc['location']; // 현재 사용자 위치
-        double userLat = currentUserLocation.latitude;
-        double userLng = currentUserLocation.longitude;
+      List<String> nearbyUsers = [];
+      for (var userDoc in querySnapshot.docs) {
+        if (userDoc.id == user.uid) continue; // 본인 제외
 
-        // 근처 사용자 쿼리 (예: 10km 이내)
-        var querySnapshot = await FirebaseFirestore.instance
-            .collection('users')
-            .where('isOnline', isEqualTo: true)
+        // 사용자 하위 컬렉션 'locations'에서 최신 위치 정보 가져오기
+        QuerySnapshot locationSnapshot = await userDoc.reference
+            .collection('locations')
+            .orderBy('timestamp', descending: true)
+            .limit(1)
             .get();
 
-        List<String> nearbyUsers = [];
-        for (var doc in querySnapshot.docs) {
-          var userLocation = doc['location'];
-          if (userLocation is GeoPoint) {
-            double distance = _calculateDistance(userLat, userLng, userLocation.latitude, userLocation.longitude);
-            if (distance <= 10000 && doc.id != user.uid) { // 10km 이내, 자신 제외
-              nearbyUsers.add(doc['name']);
-            }
+        if (locationSnapshot.docs.isNotEmpty) {
+          var locationData = locationSnapshot.docs.first;
+          GeoPoint geoPoint = locationData['location'];
+          double distance = _calculateDistance(userLat, userLng, geoPoint.latitude, geoPoint.longitude);
+          if (distance <= 10000) { // 10km 이내 사용자 필터링
+            nearbyUsers.add(userDoc['name']);
           }
         }
-
-        setState(() {
-          _nearbyUsers = nearbyUsers;
-        });
       }
+
+      setState(() {
+        _nearbyUsers = nearbyUsers;
+      });
     }
   }
-
 
   // 두 지점 사이의 거리 계산 (단위: 미터)
   double _calculateDistance(double lat1, double lon1, double lat2, double lon2) {
     const double radius = 6371000; // 지구 반경 (미터)
-    double phi1 = lat1 * (3.141592653589793 / 180);
-    double phi2 = lat2 * (3.141592653589793 / 180);
-    double deltaPhi = (lat2 - lat1) * (3.141592653589793 / 180);
-    double deltaLambda = (lon2 - lon1) * (3.141592653589793 / 180);
+    double phi1 = lat1 * (pi / 180);
+    double phi2 = lat2 * (pi / 180);
+    double deltaPhi = (lat2 - lat1) * (pi / 180);
+    double deltaLambda = (lon2 - lon1) * (pi / 180);
 
     double a = (sin(deltaPhi / 2) * sin(deltaPhi / 2)) +
         (cos(phi1) * cos(phi2) * sin(deltaLambda / 2) * sin(deltaLambda / 2));
@@ -110,14 +240,63 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   // 로그아웃 처리
-  void _logout() async {
-    await FirebaseAuth.instance.signOut();
-    Navigator.pushReplacement(
-      context,
-      MaterialPageRoute(builder: (context) => const LoginSignupScreen()), // login_signup_screen.dart를 import하고 클래스 이름을 맞춰주세요.
-    );
+  Future<void> _logout() async {
+    try {
+      // 카카오톡 로그아웃
+      try {
+        var isKakaoLoggedIn = await _checkKakaoLogin();
+        if (isKakaoLoggedIn) {
+          await UserApi.instance.logout();
+          print('카카오 로그아웃 성공');
+        } else {
+          print('카카오는 로그인되지 않음');
+        }
+      } catch (error) {
+        print('카카오 로그아웃 오류: $error');
+      }
+
+      // 구글 로그아웃
+      GoogleSignInAccount? googleUser = _googleSignIn.currentUser;
+      if (googleUser != null) {
+        await _googleSignIn.signOut();
+        print('구글 로그아웃 성공');
+      } else {
+        print('구글은 로그인되지 않음');
+      }
+
+      // Firebase 로그아웃
+      firebase_auth.User? firebaseUser = _firebaseAuth.currentUser;
+      if (firebaseUser != null) {
+        await _firebaseAuth.signOut();
+        print('Firebase 로그아웃 성공');
+      } else {
+        print('Firebase는 로그인되지 않음');
+      }
+
+      // 로그아웃 후 로그인 화면으로 이동
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (context) => const LoginSignupScreen()),
+      );
+    } catch (error) {
+      print('로그아웃 중 오류 발생: $error');
+    }
   }
 
+  // 카카오 로그인 상태 확인
+  Future<bool> _checkKakaoLogin() async {
+    try {
+      // 카카오의 accessTokenInfo를 사용하여 로그인 상태 확인
+      final tokenInfo = await UserApi.instance.accessTokenInfo();
+      return tokenInfo != null;
+    } catch (e) {
+      // accessToken이 만료되거나 로그인되지 않은 경우 예외가 발생하므로 false 반환
+      return false;
+    }
+  }
+
+
+  // 화면 별 위젯 반환
   // 화면 별 위젯 반환
   Widget _getBody() {
     switch (_selectedIndex) {
@@ -133,19 +312,7 @@ class _HomeScreenState extends State<HomeScreen> {
       case 2:
         return PlayScreen(); // play.dart의 PlayScreen 사용
       case 3:
-        return const Center(
-          child: Text(
-            '식당 화면',
-            style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
-          ),
-        );
-      case 4:
-        return const Center(
-          child: Text(
-            '내 정보',
-            style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
-          ),
-        );
+        return const FoodScreen();
       default:
         return const Center(
           child: Text(
@@ -156,14 +323,30 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  // 홈 화면 빌드 (근처 사용자 목록 표시)
+
+
+
+  // 홈 화면 빌드 (근처 사용자 목록 표시 및 현재 위치 지도 표시)
   Widget _buildHomeScreen() {
     return Scaffold(
       appBar: AppBar(
-        title: SizedBox.shrink(), // Firestore에서 불러온 사용자 이름 표시
+        title: Text(_userName),
       ),
       body: Column(
         children: [
+          SizedBox(
+            height: 250, // 지도 높이를 250으로 지정 (크기를 줄이기 위해 설정)
+            child: GoogleMap(
+              initialCameraPosition: CameraPosition(
+                target: _currentPosition ?? LatLng(37.7749, -122.4194),
+                zoom: 14,
+              ),
+              myLocationEnabled: true,
+              onMapCreated: (GoogleMapController controller) {
+                _mapController = controller;
+              },
+            ),
+          ),
           if (_nearbyUsers.isNotEmpty)
             Expanded(
               child: ListView.builder(
@@ -189,50 +372,102 @@ class _HomeScreenState extends State<HomeScreen> {
     return Scaffold(
       appBar: AppBar(
         backgroundColor: Colors.black,
-        leading: GestureDetector(
+        leading: _userProfilePicUrl.isEmpty
+            ? GestureDetector(
           onTap: () {
             setState(() {
               _selectedIndex = 0; // 홈 화면으로 전환
             });
           },
           child: const Icon(
-            Icons.person, // 사람 모양의 아이콘
+            Icons.person,
             color: Colors.white,
             size: 30,
           ),
-        ),
-        title: Text(
-          _userName, // Firestore에서 불러온 사용자 이름 표시
-          style: const TextStyle(
-              color: Colors.white,
-              fontSize: 20,
-              fontWeight: FontWeight.bold),
+        )
+            : SizedBox.shrink(), // 프로필이 있을 경우 아이콘을 숨깁니다
+        title: Row(
+          mainAxisAlignment: MainAxisAlignment.start, // 왼쪽 정렬
+          children: [
+            if (_userProfilePicUrl.isNotEmpty)
+              CircleAvatar(
+                backgroundImage: NetworkImage(_userProfilePicUrl),
+                radius: 20, // 크기 조정
+              ),
+            const SizedBox(width: 8),
+            Text(
+              _userName, // 구글 사용자 이름
+              style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold),
+            ),
+          ],
         ),
         actions: [
-          PopupMenuButton<int>(
-            onSelected: (value) {
-              if (value == 1) {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (context) => const ChattingScreen()),
-                );
-              } else if (value == 5) {
-                _logout(); // 로그아웃 처리
-              } else {
-                _onItemTapped(value); // 화면 전환
-              }
-            },
-            icon: Icon(
+          IconButton(
+            icon: const Icon(
               Icons.more_vert, // 원하는 아이콘 사용
               color: Colors.white, // 아이콘 색을 하얀색으로 설정
             ),
-            itemBuilder: (context) => [
-              const PopupMenuItem(value: 1, child: Text('채팅')),
-              const PopupMenuItem(value: 2, child: Text('놀거리')),
-              const PopupMenuItem(value: 3, child: Text('음식점')),
-              const PopupMenuItem(value: 4, child: Text('내 정보')),
-              const PopupMenuItem(value: 5, child: Text('로그아웃')),
-            ],
+            onPressed: () {
+              showModalBottomSheet(
+                context: context,
+                builder: (BuildContext context) {
+                  return Align(
+                    alignment: Alignment.topCenter, // 모달을 화면 상단에 배치 (위치 조정)
+                    child: Container(
+                      margin: const EdgeInsets.only(top: 20.0), // 모달 전체를 아래로 100포인트 이동
+                      padding: const EdgeInsets.all(16.0),
+                      height: 500, // 모달 높이 지정
+                      child: ListView(
+                        children: [
+                          ListTile(
+                            leading: const Icon(Icons.chat),
+                            title: const Text('채팅'),
+                            onTap: () {
+                              Navigator.pop(context);
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                    builder: (context) => const ChattingScreen(
+                                      times: '10:30 AM',
+                                      title: '영화 감상',
+                                    )),
+                              );
+                            },
+                          ),
+                          ListTile(
+                            leading: const Icon(Icons.gamepad),
+                            title: const Text('놀거리'),
+                            onTap: () {
+                              Navigator.pop(context);
+                              _onItemTapped(2);
+                            },
+                          ),
+                          ListTile(
+                            leading: const Icon(Icons.restaurant),
+                            title: const Text('음식점'),
+                            onTap: () {
+                              Navigator.pop(context);
+                              _onItemTapped(3);
+                            },
+                          ),
+                          ListTile(
+                            leading: const Icon(Icons.logout),
+                            title: const Text('로그아웃'),
+                            onTap: () {
+                              Navigator.pop(context);
+                              _logout();
+                            },
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
+                },
+              );
+            },
           ),
         ],
       ),
