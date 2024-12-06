@@ -1,11 +1,12 @@
-import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:chatapp/config/palette.dart';
-import 'package:kakao_flutter_sdk_user/kakao_flutter_sdk_user.dart' as kakao_sdk;
 import 'package:chatapp/screen/signup_screen.dart'; // 회원가입 화면 import
 import 'package:chatapp/screen/home_screen.dart';
 import 'package:firebase_auth/firebase_auth.dart' as firebase_auth;
-import 'package:chatapp/screens/chatting_screen.dart';
+import 'package:chatapp/login/google_service.dart';
+import 'package:chatapp/login/kakao_service.dart';
+import 'package:chatapp/config/login_platform.dart';
+import 'package:chatapp/config/login_button.dart';
 
 class LoginSignupScreen extends StatefulWidget {
   const LoginSignupScreen({Key? key}) : super(key: key);
@@ -18,33 +19,52 @@ class _LoginSignupScreenState extends State<LoginSignupScreen> {
   final TextEditingController _emailController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
 
-  Future<void> _loginWithKakao() async {
-    try {
-      // 카카오 계정으로 로그인
-      await kakao_sdk.UserApi.instance.loginWithKakaoAccount();
+  LoginPlatform _loginPlatform = LoginPlatform.none;
 
-      print('카카오 로그인 성공');
-      // 카카오 로그인 성공 후 회원가입 화면으로 이동
-      Navigator.push(
+  // 카카오 로그인
+  Future<void> _loginWithKakao() async {
+    bool success = await KakaoService().login();
+    if (success) {
+      setState(() {
+        _loginPlatform = LoginPlatform.kakao;
+      });
+      Navigator.pushReplacement(
         context,
-        MaterialPageRoute(builder: (context) => SignupScreen()),
+        MaterialPageRoute(builder: (context) => HomeScreen()),
       );
-    } catch (error) {
-      print('카카오 로그인 실패: $error');
     }
   }
 
+  // 구글 로그인
+  Future<void> _loginWithGoogle() async {
+    bool success = await GoogleService().login();
+    if (success) {
+      setState(() {
+        _loginPlatform = LoginPlatform.google;
+      });
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (context) => HomeScreen()),
+      );
+    }
+  }
+
+
+
+  // 이메일 로그인
   Future<void> _loginWithEmail() async {
     try {
       String email = _emailController.text.trim();
       String password = _passwordController.text.trim();
 
-      // Firebase 이메일 로그인
       await firebase_auth.FirebaseAuth.instance
           .signInWithEmailAndPassword(email: email, password: password);
 
+      setState(() {
+        _loginPlatform = LoginPlatform.email;
+      });
+
       print('로그인 성공');
-      // 로그인 성공 시 홈 화면으로 이동
       Navigator.pushReplacement(
         context,
         MaterialPageRoute(builder: (context) => HomeScreen()),
@@ -83,13 +103,13 @@ class _LoginSignupScreenState extends State<LoginSignupScreen> {
               ),
             ),
           ),
-          // 로그인 및 카카오 로그인 UI
+          // 로그인 및 카카오, 구글, 네이버 로그인 UI
           Positioned(
-            top: 300,
+            top: 250,
             left: 20,
             right: 20,
             child: Container(
-              height: 400.0,
+              height: 480.0,
               decoration: BoxDecoration(
                 color: Colors.white,
                 borderRadius: BorderRadius.circular(15.0),
@@ -129,26 +149,50 @@ class _LoginSignupScreenState extends State<LoginSignupScreen> {
                     ),
                   ),
                   const SizedBox(height: 20),
-                  // 로그인 버튼
+                  // 이메일 로그인 버튼
                   ElevatedButton(
                     onPressed: _loginWithEmail,
                     child: const Text('Login'),
                   ),
                   const SizedBox(height: 20),
                   // "Sign Up" 구분 텍스트
-                  const Text(
-                    'Sign Up',
-                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                  GestureDetector(
+                    onTap: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(builder: (context) => SignupScreen()),
+                      );
+                    },
+                    child: const Text(
+                      'Sign Up',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.blue, // 텍스트 색상을 파란색으로 변경
+                      ),
+                    ),
                   ),
                   const SizedBox(height: 20),
-                  // 카카오 로그인 버튼
-                  GestureDetector(
-                    onTap: _loginWithKakao,
-                    child: Image.asset(
-                      'asset/img/kakaoimage.png', // 카카오톡 아이콘 이미지
-                      width: 200,
-                      height: 50,
-                    ),
+                  // 카카오, 구글, 네이버 로그인 버튼들
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                    children: [
+                      // 카카오 로그인 버튼
+                      Flexible(
+                        child: LoginButton(
+                          imagePath: 'asset/img/kakao_logo.png',
+                          onPressed: _loginWithKakao,
+                        ),
+                      ),
+                      // 구글 로그인 버튼
+                      Flexible(
+                        child: LoginButton(
+                          imagePath: 'asset/img/google_logo.png',
+                          onPressed: _loginWithGoogle,
+                        ),
+                      ),
+                      // 네이버 로그인 버튼
+                    ],
                   ),
                 ],
               ),
@@ -159,3 +203,10 @@ class _LoginSignupScreenState extends State<LoginSignupScreen> {
     );
   }
 }
+
+
+
+
+
+
+
